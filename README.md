@@ -10,8 +10,7 @@
 
 ## 📸 Screenshots (Hình ảnh)
 
-*(Place your screenshot here / Hãy thay thế dòng này bằng ảnh chụp màn hình dự án của bạn)*
-`![Galaxy Screenshot](./screenshot.png)`
+<img width="1909" height="940" alt="image" src="https://github.com/user-attachments/assets/87e11e7b-843b-499f-90ae-e09d1bf1a086" />
 
 ---
 
