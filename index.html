@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Galaxy Ultimate - Vast Space</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; }
+        canvas { display: block; }
+        #ui {
+            position: absolute; top: 10px; left: 10px; color: #fff;
+            font-family: 'Segoe UI', sans-serif; pointer-events: none;
+            text-shadow: 0 0 10px #0066ff;
+        }
+        .title { font-size: 20px; font-weight: bold; letter-spacing: 2px; color: #aaddff; }
+        .sub { font-size: 12px; opacity: 0.7; color: #ccc; }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.136.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.136.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="ui">
+        <div class="title">VAST UNIVERSE GALAXY</div>
+        <div class="sub">Layer 1: Colorful Core</div>
+        <div class="sub">Layer 2: Dense Asteroid Belt</div>
+        <div class="sub">Layer 3: Sparse Outer Systems (New)</div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        
+        const CONFIG = {
+            starCount: 150, 
+            G: 50,
+            // Layer 1: Core
+            galaxyRadius: 300, 
+            // Layer 2: Asteroids
+            asteroidMinR: 320, 
+            asteroidMaxR: 550,
+            // Layer 3: Outer Space 
+            outerMinR: 600,
+            outerMaxR: 1500
+        };
+
+        let gu = { time: { value: 0 } };
+
+        function createParticleGalaxy(scene) {
+            let sizes = [];
+            let shift = [];
+            let pts = [];
+            let pushShift = () => {
+                shift.push(
+                    Math.random() * Math.PI,
+                    Math.random() * Math.PI * 2,
+                    (Math.random() * 0.9 + 0.1) * Math.PI * 0.1,
+                    Math.random() * 0.9 + 0.1
+                );
+            };
+
+            for (let i = 0; i < 40000; i++) {
+                let r = 50, R = CONFIG.galaxyRadius; 
+                let rand = Math.pow(Math.random(), 1.5);
+                let radius = Math.sqrt(R * R * rand + (1 - rand) * r * r);
+                let p = new THREE.Vector3().setFromCylindricalCoords(
+                    radius, Math.random() * 2 * Math.PI, (Math.random() - 0.5) * 35 
+                );
+                pts.push(p);
+                sizes.push(Math.random() * 1.5 + 0.5);
+                pushShift();
+            }
+
+            let g = new THREE.BufferGeometry().setFromPoints(pts);
+            g.setAttribute("sizes", new THREE.Float32BufferAttribute(sizes, 1));
+            g.setAttribute("shift", new THREE.Float32BufferAttribute(shift, 4));
+            let m = new THREE.PointsMaterial({
+                size: 1.5, transparent: true, depthTest: false, blending: THREE.AdditiveBlending,
+                onBeforeCompile: shader => {
+                    shader.uniforms.time = gu.time;
+                    shader.vertexShader = `
+                        uniform float time; attribute float sizes; attribute vec4 shift; varying vec3 vColor;
+                        ${shader.vertexShader}`.replace(`gl_PointSize = size;`, `gl_PointSize = size * sizes;`)
+                        .replace(`#include <color_vertex>`, `#include <color_vertex>
+                        float d = length(abs(position) / vec3(300., 50., 300)); d = clamp(d, 0., 1.);
+                        vColor = mix(vec3(255., 200., 50.), vec3(100., 50., 255.), d) / 255.;`)
+                        .replace(`#include <begin_vertex>`, `#include <begin_vertex>
+                        float t = time; float moveT = mod(shift.x + shift.z * t, PI2); float moveS = mod(shift.y + shift.z * t, PI2);
+                        transformed += vec3(cos(moveS) * sin(moveT), cos(moveT), sin(moveS) * sin(moveT)) * shift.a;`);
+                    shader.fragmentShader = `
+                        varying vec3 vColor; ${shader.fragmentShader}`.replace(`#include <clipping_planes_fragment>`, `#include <clipping_planes_fragment>
+                        float d = length(gl_PointCoord.xy - 0.5); if (d > 0.5) discard;`)
+                        .replace(`vec4 diffuseColor = vec4( diffuse, opacity );`, `vec4 diffuseColor = vec4( vColor, smoothstep(0.5, 0.1, d) );`);
+                }
+            });
+            let p = new THREE.Points(g, m);
+            p.rotation.order = "ZYX"; p.rotation.z = 0.1; 
+            scene.add(p);
+            return p;
+        }
+
+        function createAsteroidBelt(scene) {
+            const count = 8000; 
+            const geometry = new THREE.BufferGeometry();
+            const positions = [];
+            const colors = [];
+            const colorObj = new THREE.Color();
+
+            for(let i = 0; i < count; i++) {
+                const r = CONFIG.asteroidMinR + Math.random() * (CONFIG.asteroidMaxR - CONFIG.asteroidMinR);
+                const theta = Math.random() * Math.PI * 2;
+                const y = (Math.random() - 0.5) * 90; 
+                positions.push(r * Math.cos(theta), y, r * Math.sin(theta));
+
+                const shade = Math.random();
+                if (shade > 0.8) colorObj.setHex(0xaaaaaa); else if (shade > 0.5) colorObj.setHex(0x887766); else colorObj.setHex(0x555555);
+                colors.push(colorObj.r, colorObj.g, colorObj.b);
+            }
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            const material = new THREE.PointsMaterial({
+                size: 1.2, vertexColors: true, transparent: true, opacity: 0.8, sizeAttenuation: true
+            });
+            const asteroids = new THREE.Points(geometry, material);
+            scene.add(asteroids);
+            return asteroids;
+        }
+
+        function createOuterSpaceBodies(scene) {
+            const count = 2500; 
+            const geometry = new THREE.BufferGeometry();
+            const positions = [];
+
+            for(let i = 0; i < count; i++) {
+                const pos = new THREE.Vector3().randomDirection();
+                const distance = THREE.MathUtils.randFloat(CONFIG.outerMinR, CONFIG.outerMaxR);
+                pos.multiplyScalar(distance);
+                pos.y *= 0.4; 
+
+                positions.push(pos.x, pos.y, pos.z);
+            }
+
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+
+            
+            const material = new THREE.PointsMaterial({
+                color: 0xaaaaaa,    
+                size: 0.9,          
+                transparent: true,
+                opacity: 0.4,       
+                sizeAttenuation: true, 
+                blending: THREE.AdditiveBlending 
+            });
+
+            const outerSpace = new THREE.Points(geometry, material);
+            scene.add(outerSpace);
+            return outerSpace;
+        }
+
+        
+        class CelestialBody {
+            constructor(radius, color, mass, parentBody = null, orbitData = null) {
+                this.parent = parentBody;
+                this.orbitData = orbitData ? {
+                    a: orbitData.distance, e: orbitData.eccentricity, tilt: (Math.random() - 0.5) * 0.5,
+                    theta: Math.random() * Math.PI * 2, speed: 0
+                } : null;
+                if (this.parent && this.orbitData) {
+                    this.orbitData.speed = Math.sqrt(CONFIG.G * this.parent.mass / this.orbitData.a) * 0.02;
+                }
+                const geometry = new THREE.SphereGeometry(radius, 12, 12);
+                let material;
+                if (mass > 100) {
+                    material = new THREE.MeshBasicMaterial({ color: color });
+                    this.mesh = new THREE.Mesh(geometry, material);
+                    this.mesh.add(new THREE.PointLight(color, 1, 80));
+                } else {
+                    material = new THREE.MeshLambertMaterial({ color: color });
+                    this.mesh = new THREE.Mesh(geometry, material);
+                }
+                if (this.parent) {
+                    this.parent.mesh.add(this.mesh);
+                    if (this.mass < 50 && Math.random() > 0.5) this.createOrbitPath(); 
+                }
+            }
+            createOrbitPath() {
+                const points = []; const segments = 32;
+                const a = this.orbitData.a; const b = a * Math.sqrt(1 - (this.orbitData.e ** 2));
+                for (let i = 0; i <= segments; i++) {
+                    const theta = (i / segments) * Math.PI * 2;
+                    points.push(new THREE.Vector3(a * Math.cos(theta), 0, b * Math.sin(theta)));
+                }
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.08 });
+                const path = new THREE.Line(geometry, material);
+                path.rotation.x = Math.PI / 2 + this.orbitData.tilt; this.parent.mesh.add(path);
+            }
+            update(deltaTime) {
+                if (this.orbitData) {
+                    this.orbitData.theta += this.orbitData.speed * deltaTime * 10;
+                    const a = this.orbitData.a; const b = a * Math.sqrt(1 - (this.orbitData.e ** 2));
+                    this.mesh.position.x = a * Math.cos(this.orbitData.theta);
+                    this.mesh.position.z = b * Math.sin(this.orbitData.theta);
+                    this.mesh.position.y = Math.sin(this.orbitData.theta) * (a * Math.sin(this.orbitData.tilt)) * 0.2;
+                }
+            }
+        }
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x010103); 
+        
+        scene.fog = new THREE.FogExp2(0x010103, 0.0002);
+
+        const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 1, 5000); 
+        camera.position.set(0, 200, 600); 
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(innerWidth, innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; controls.enablePan = false;
+        controls.minDistance = 20;
+        controls.maxDistance = 2500; 
+
+        scene.add(new THREE.AmbientLight(0x333333));
+        const galaxyCore = createParticleGalaxy(scene);   
+        const asteroidBelt = createAsteroidBelt(scene);   
+        const outerSpace = createOuterSpaceBodies(scene); 
+        const bodies = [];
+        const centerStar = new CelestialBody(0.1, 0x000000, 10000, null); scene.add(centerStar.mesh);
+        for(let i=0; i<CONFIG.starCount; i++) {
+            const dist = (Math.random() * 250) + 30; 
+            const starColor = Math.random() > 0.5 ? 0xffddaa : 0xaaddff;
+            const star = new CelestialBody((Math.random() * 0.5) + 0.3, starColor, 200, centerStar, { distance: dist, eccentricity: Math.random() * 0.3 });
+            bodies.push(star);
+            const pCount = Math.floor(Math.random() * 3);
+            for(let j=0; j<pCount; j++) {
+                bodies.push(new CelestialBody((Math.random() * 0.2) + 0.1, Math.random() * 0xffffff, 1, star, { distance: (Math.random() * 10) + 2, eccentricity: 0 }));
+            }
+        }
+
+        const clock = new THREE.Clock();
+        renderer.setAnimationLoop(() => {
+            controls.update();
+            const t = clock.getElapsedTime();
+            gu.time.value = t * Math.PI;
+            
+            
+            galaxyCore.rotation.y = t * 0.02;   
+            asteroidBelt.rotation.y = t * 0.005; 
+            outerSpace.rotation.y = t * 0.001; 
+
+            bodies.forEach(b => b.update(0.016));
+            renderer.render(scene, camera);
+        });
+
+        window.addEventListener("resize", () => {
+            camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(innerWidth, innerHeight);
+        });
+    </script>
+</body>
+</html>
